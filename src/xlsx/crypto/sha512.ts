@@ -189,9 +189,11 @@ export function sha512(data: Uint8Array): Uint8Array {
  * The Agile spin: `spinCount` times, h = SHA-512(LE32(i) ‖ h), starting
  * from the 64-byte `h`. Each round's input is 68 bytes — one padded
  * block — so the block is built once and only its counter and hash bytes
- * change between rounds.
+ * change between rounds. `start` is the first round's counter, so a long
+ * spin can run in chunks: spinning a rounds then b rounds from `start` a
+ * gives the same hash as a + b rounds at once.
  */
-export function sha512Spin(h: Uint8Array, spinCount: number): Uint8Array {
+export function sha512Spin(h: Uint8Array, spinCount: number, start = 0): Uint8Array {
   if (h.length !== 64) throw new RangeError("sha512Spin expects a 64-byte SHA-512 hash")
   if (!IV) constants()
   const block = new Uint8Array(128)
@@ -201,7 +203,7 @@ export function sha512Spin(h: Uint8Array, spinCount: number): Uint8Array {
   block[126] = (68 * 8) >>> 8
   const state = new Int32Array(16)
   const w = new Int32Array(160)
-  for (let i = 0; i < spinCount; i++) {
+  for (let i = start; i < start + spinCount; i++) {
     block[0] = i
     block[1] = i >>> 8
     block[2] = i >>> 16

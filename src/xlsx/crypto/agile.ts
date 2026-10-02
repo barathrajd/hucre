@@ -26,6 +26,8 @@ const BLOCK_HMAC_KEY = new Uint8Array([0x5f, 0xb2, 0xad, 0x01, 0x0c, 0xb9, 0xe1,
 const BLOCK_HMAC_VALUE = new Uint8Array([0xa0, 0x67, 0x7f, 0x02, 0xb2, 0x2c, 0x84, 0x33])
 
 const SEGMENT = 4096
+// Rounds hashed between yields in the SHA-512 spin — ~10 ms on a laptop.
+const SPIN_CHUNK = 10_000
 const ZERO_IV = new Uint8Array(16)
 
 interface AgileKeyInfo {
@@ -243,7 +245,17 @@ async function passwordChain(
   // SHA-512 (what Excel writes, and all hucre writes) spins synchronously:
   // 100,000 awaited `subtle.digest` calls took ~1 s on a laptop and over
   // 30 s on a small Lambda, where the same rounds in-process take ~0.1 s.
-  if (algo === "SHA-512") return sha512Spin(h, spinCount)
+  // In chunks, yielding between them: a file being decrypted chooses its
+  // own spin count (up to MAX_SPIN_COUNT, ~9 s of hashing), and one
+  // unbroken loop would freeze a browser tab or stall a server's other
+  // requests for all of it.
+  if (algo === "SHA-512") {
+    for (let done = 0; done < spinCount; done += SPIN_CHUNK) {
+      if (done > 0) await new Promise<void>((resolve) => setTimeout(resolve, 0))
+      h = sha512Spin(h, Math.min(SPIN_CHUNK, spinCount - done), done)
+    }
+    return h
+  }
   const counter = new Uint8Array(4)
   const cv = new DataView(counter.buffer)
   for (let i = 0; i < spinCount; i++) {
