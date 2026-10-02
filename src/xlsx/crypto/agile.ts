@@ -10,11 +10,13 @@
 //     true plaintext.
 //   • encrypt: encrypt normally, then drop the trailing padding block;
 //     the leading blocks are the raw CBC ciphertext.
-// SHA hashing uses WebCrypto's `subtle.digest` directly.
+// SHA hashing uses WebCrypto's `subtle.digest` directly — except the
+// password spin, which is synchronous (see `sha512.ts` for why).
 
 import { readCfb, writeCfb } from "./cfb"
 import { DecryptionError } from "../../errors"
 import { MAX_SPIN_COUNT } from "../../limits"
+import { sha512Spin } from "./sha512"
 
 // Block keys (MS-OFFCRYPTO §2.3.4.x).
 const BLOCK_VERIFIER_INPUT = new Uint8Array([0xfe, 0xa7, 0xd2, 0x76, 0x3b, 0x4b, 0x9e, 0x79])
@@ -238,6 +240,10 @@ async function passwordChain(
   algo: string,
 ): Promise<Uint8Array> {
   let h = await digest(algo, concat([salt, utf16le(password)]))
+  // SHA-512 (what Excel writes, and all hucre writes) spins synchronously:
+  // 100,000 awaited `subtle.digest` calls took ~1 s on a laptop and over
+  // 30 s on a small Lambda, where the same rounds in-process take ~0.1 s.
+  if (algo === "SHA-512") return sha512Spin(h, spinCount)
   const counter = new Uint8Array(4)
   const cv = new DataView(counter.buffer)
   for (let i = 0; i < spinCount; i++) {
